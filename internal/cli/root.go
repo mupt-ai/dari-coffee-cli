@@ -11,6 +11,7 @@ func newRootCommand(version string) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:           "dari-coffee",
 		Short:         "Order coffee from Dari's FiDi Coffee CLI",
+		Version:       version,
 		SilenceUsage:  true,
 		SilenceErrors: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -18,6 +19,7 @@ func newRootCommand(version string) *cobra.Command {
 		},
 	}
 
+	cmd.SetVersionTemplate("dari-coffee {{.Version}}\n")
 	cmd.SetOut(os.Stdout)
 	cmd.SetErr(os.Stderr)
 	cmd.AddCommand(newVersionCommand(version))
