@@ -1,0 +1,6 @@
+package: openapi
+generate:
+  models: true
+output: api.gen.go
+output-options:
+  prefer-skip-optional-pointer: true

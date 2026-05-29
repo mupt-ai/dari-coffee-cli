@@ -1,0 +1,162 @@
+# Dari Coffee Agent Guide
+
+Dari Coffee is an agent-first CLI for ordering a constrained coffee delivery
+from Dari in San Francisco.
+
+## Agent Workflow
+
+When a user asks you to order coffee:
+
+1. Run `dari-coffee menu --json`.
+2. Tell the user which stores are currently available. Ask them to choose one
+   store. Present store display names and hours/order cutoffs when present.
+   Keep slugs internal. One order cannot mix stores.
+3. After the user chooses a store, show only that store's drinks, sizes, and
+   prices. Ask for the user's drink order and modifications.
+4. After the user gives the order, collect the required customer details:
+   name, email, company, and complete delivery address. Phone, delivery notes,
+   and customer note are optional.
+5. Run `dari-coffee check-address --json "<address>"`.
+6. If the address is `eligible`, proceed.
+7. If the address is `outside_delivery_zone`, tell the user approval is less
+   likely because the address is outside the default delivery zone. Ask whether
+   they still want to submit for review. If yes, proceed.
+8. If the address is `address_unresolved`, ask for a more complete address and
+   retry the address check. Do not order yet.
+9. If the address is `geocoder_unavailable`, tell the user address validation is
+   temporarily unavailable. Do not order yet.
+10. Run `dari-coffee order ...` with `--items-json`.
+11. Give the user the printed `Checkout:` URL. The user must authorize payment
+   in Stripe. Checkout authorizes payment only; Dari captures only after
+   accepting the order.
+
+## Address Input
+
+Always provide a complete delivery address. Include street number, street name,
+city, state, and ZIP when available.
+
+Good:
+
+```bash
+dari-coffee check-address --json "1 Market St, San Francisco, CA 94105"
+```
+
+Do not rely on the backend to infer missing city/state. The backend geocodes the
+address exactly as submitted.
+
+## Address Check Statuses
+
+Prefer `--json` when calling `check-address` from an agent. The `status` field
+is the stable contract.
+
+Run `check-address --json` before `order` when acting for a user. Confirm the
+resolved address with the user when useful. If the address is unresolved, ask
+the user for a more complete address. The `order` command still submits the
+address to the backend for authoritative validation before an order and Stripe
+Checkout are created.
+
+- `eligible`: address geocoded confidently and is inside the default delivery
+  zone. The order flow can create an order and Stripe Checkout Session.
+  Checkout authorizes payment only; Dari captures payment after accepting the
+  order.
+- `outside_delivery_zone`: address geocoded confidently but is outside the
+  default delivery zone. Tell the user the address is outside the default
+  delivery zone and may be denied after review. If the user wants to continue,
+  create the order normally.
+- `address_unresolved`: address was incomplete, not found, or too
+  low-confidence. Rerun the command with a more complete address.
+- `geocoder_unavailable`: address validation is temporarily unavailable due to
+  provider/network/quota issues. Retry later.
+
+`check-address --json` can still exit nonzero for `address_unresolved` and
+`geocoder_unavailable`. When JSON is printed, read the `status` field before
+deciding what to tell the user.
+
+## Expected Order Behavior
+
+Use `dari-coffee menu --json` before ordering. The JSON output is the source of
+truth for currently orderable shops, drinks, sizes, prices, and slugs. If a
+shop or drink is missing from `menu --json`, do not try to order it.
+
+For human display, `dari-coffee menu` prints the same currently orderable menu
+without JSON. Do not construct `--items-json` by guessing slugs from the human
+menu output.
+
+If `menu --json` fails, tell the user the live menu is unavailable and do not
+place an order. Do not infer slugs from static docs or memory.
+
+When creating an order, do not assume a prior `check-address` command was run.
+Submit the full address with the order request and let the backend perform the
+same address check.
+
+Order command:
+
+```bash
+dari-coffee order \
+  --name "Ada Lovelace" \
+  --email "ada@example.com" \
+  --phone "415-555-0100" \
+  --company "Analytical Engines Inc." \
+  --address "1 Market St, San Francisco, CA 94105" \
+  --delivery-notes "Front desk" \
+  --items-json '[{"shop_slug":"starbucks","drink_slug":"iced-caramel-macchiato","size":"grande","quantity":1,"modifications":"extra ice"}]'
+```
+
+`--items-json` must be a JSON array. Each item object must include:
+
+- `shop_slug`: shop slug from `dari-coffee menu --json`
+- `drink_slug`: drink slug from `dari-coffee menu --json`
+- `size`: size name from `dari-coffee menu --json`
+- `quantity`: positive integer
+- `modifications`: optional string
+
+Use the exact `slug` values from `menu --json`; do not infer slugs from display
+names.
+
+Mixed drinks are supported by passing multiple item objects from the same shop.
+Do not mix shops in one order. Multiple of the same drink are supported either
+by setting `quantity` above `1` or by repeating an item when the modifications
+differ.
+
+Example mixed order:
+
+```bash
+dari-coffee order \
+  --name "Ada Lovelace" \
+  --email "ada@example.com" \
+  --company "Analytical Engines Inc." \
+  --address "1 Market St, San Francisco, CA 94105" \
+  --items-json '[
+    {"shop_slug":"starbucks","drink_slug":"americano","size":"grande","quantity":2},
+    {"shop_slug":"starbucks","drink_slug":"mocha-frappuccino","size":"grande","quantity":1,"modifications":"no whip"}
+  ]'
+```
+
+Required flags:
+
+- `--name`
+- `--email`
+- `--company`
+- `--address`
+- `--items-json`
+
+Optional flags:
+
+- `--phone`
+- `--delivery-notes`
+- `--note`
+
+If the address is outside the default delivery zone, ask whether the user still
+wants to submit for review. If yes, run the same `order` command. The backend
+stores the order as outside-zone for Dari review.
+
+Successful orders print an order ID, status, total, resolved address when
+available, and a `Checkout:` URL. Send the user to the checkout URL to
+authorize payment.
+
+The CLI exits after printing the checkout URL. It does not wait for Stripe and
+does not automatically know whether the user completed checkout. The backend
+receives Stripe webhooks after checkout. Do not tell the user the order is
+approved just because checkout opened. Payment is not captured at checkout
+time; Dari captures only after accepting the order. If the user abandons
+Checkout, no payment is authorized.

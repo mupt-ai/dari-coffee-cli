@@ -1,0 +1,315 @@
+openapi: 3.0.3
+info:
+  title: Dari Coffee Public API
+  version: 0.1.0
+  description: Public API used by the Dari Coffee CLI.
+servers:
+  - url: https://coffee.dari.dev
+paths:
+  /v1/menu:
+    get:
+      operationId: getMenu
+      summary: Get the currently orderable coffee menu.
+      tags: [public]
+      responses:
+        "200":
+          description: Current public menu.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Menu"
+        default:
+          $ref: "#/components/responses/Error"
+  /v1/service:
+    get:
+      operationId: getServiceStatus
+      summary: Get public service availability.
+      tags: [public]
+      responses:
+        "200":
+          description: Current public service status.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ServiceStatus"
+        default:
+          $ref: "#/components/responses/Error"
+  /v1/address/check:
+    post:
+      operationId: checkAddress
+      summary: Check whether an address can proceed to checkout.
+      tags: [public]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AddressCheckRequest"
+      responses:
+        "200":
+          description: Address decision.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AddressCheck"
+        "422":
+          $ref: "#/components/responses/Error"
+        "503":
+          $ref: "#/components/responses/Error"
+        default:
+          $ref: "#/components/responses/Error"
+  /v1/orders:
+    post:
+      operationId: createCoffeeOrder
+      summary: Create a coffee order and Stripe Checkout session.
+      tags: [public]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateOrderRequest"
+      responses:
+        "201":
+          description: Order queued for checkout.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CreateOrderResponse"
+        "400":
+          $ref: "#/components/responses/Error"
+        "409":
+          $ref: "#/components/responses/Error"
+        "422":
+          $ref: "#/components/responses/Error"
+        "502":
+          $ref: "#/components/responses/Error"
+        "503":
+          $ref: "#/components/responses/Error"
+        default:
+          $ref: "#/components/responses/Error"
+components:
+  responses:
+    Error:
+      description: Stable machine-readable API error.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+  schemas:
+    Currency:
+      type: string
+      enum: [usd]
+    ErrorCode:
+      type: string
+      enum:
+        - invalid_order
+        - menu_item_unavailable
+        - address_unresolved
+        - geocoder_unavailable
+        - checkout_unavailable
+        - payment_unavailable
+        - service_off
+        - outside_hours
+    ErrorResponse:
+      type: object
+      additionalProperties: false
+      required: [error]
+      properties:
+        code:
+          $ref: "#/components/schemas/ErrorCode"
+        error:
+          type: string
+    Menu:
+      type: object
+      additionalProperties: false
+      required: [title, description, shops]
+      properties:
+        title:
+          type: string
+        description:
+          type: string
+        shops:
+          type: array
+          items:
+            $ref: "#/components/schemas/Shop"
+    Shop:
+      type: object
+      additionalProperties: false
+      required: [slug, name, hours, drinks]
+      properties:
+        slug:
+          type: string
+        name:
+          type: string
+        hours:
+          $ref: "#/components/schemas/ShopHours"
+        drinks:
+          type: array
+          items:
+            $ref: "#/components/schemas/Drink"
+    ShopHours:
+      type: object
+      additionalProperties: false
+      required: [open_time, close_time, last_order_time]
+      properties:
+        open_time:
+          type: string
+          example: "07:00"
+        close_time:
+          type: string
+          example: "18:00"
+        last_order_time:
+          type: string
+          example: "17:00"
+    Drink:
+      type: object
+      additionalProperties: false
+      required: [slug, name, description, sizes]
+      properties:
+        slug:
+          type: string
+        name:
+          type: string
+        description:
+          type: string
+        sizes:
+          type: array
+          items:
+            $ref: "#/components/schemas/SizePrice"
+    SizePrice:
+      type: object
+      additionalProperties: false
+      required: [name, currency, price_cents]
+      properties:
+        name:
+          type: string
+        currency:
+          $ref: "#/components/schemas/Currency"
+        price_cents:
+          type: integer
+          x-go-type: int
+          minimum: 0
+    ServiceStatus:
+      type: object
+      additionalProperties: false
+      required: [service_enabled, checkout_available, open_time, close_time]
+      properties:
+        service_enabled:
+          type: boolean
+        checkout_available:
+          type: boolean
+        reason:
+          type: string
+        open_time:
+          type: string
+          example: "10:30"
+        close_time:
+          type: string
+          example: "17:30"
+    AddressCheckStatus:
+      type: string
+      enum:
+        - eligible
+        - address_unresolved
+        - outside_delivery_zone
+        - geocoder_unavailable
+    AddressCheckRequest:
+      type: object
+      additionalProperties: false
+      required: [address]
+      properties:
+        address:
+          type: string
+    AddressCheck:
+      type: object
+      additionalProperties: false
+      required: [address, status, checkout_eligible]
+      properties:
+        address:
+          type: string
+        formatted_address:
+          type: string
+        status:
+          $ref: "#/components/schemas/AddressCheckStatus"
+        checkout_eligible:
+          type: boolean
+    CreateOrderRequest:
+      type: object
+      additionalProperties: false
+      required: [name, email, company, address, items]
+      properties:
+        name:
+          type: string
+        email:
+          type: string
+        phone:
+          type: string
+        company:
+          type: string
+        address:
+          type: string
+        delivery_notes:
+          type: string
+        items:
+          type: array
+          minItems: 1
+          items:
+            $ref: "#/components/schemas/CreateOrderItemRequest"
+        customer_note:
+          type: string
+    CreateOrderItemRequest:
+      type: object
+      additionalProperties: false
+      required: [shop_slug, drink_slug, size, quantity]
+      properties:
+        shop_slug:
+          type: string
+        drink_slug:
+          type: string
+        size:
+          type: string
+        quantity:
+          type: integer
+          x-go-type: int
+          minimum: 1
+        modifications:
+          type: string
+    CreateOrderResponse:
+      type: object
+      additionalProperties: false
+      required: [order, address_check]
+      properties:
+        order:
+          $ref: "#/components/schemas/OrderSummary"
+        address_check:
+          $ref: "#/components/schemas/AddressCheck"
+        checkout_session_id:
+          type: string
+          x-go-name: CheckoutSessionID
+        checkout_url:
+          type: string
+          format: uri
+          x-go-name: CheckoutURL
+    OrderSummary:
+      type: object
+      additionalProperties: false
+      required: [id, status, zone_status, subtotal_cents, total_cents, currency]
+      properties:
+        id:
+          type: string
+          x-go-name: ID
+        status:
+          type: string
+        zone_status:
+          type: string
+        subtotal_cents:
+          type: integer
+          x-go-type: int
+          minimum: 0
+        total_cents:
+          type: integer
+          x-go-type: int
+          minimum: 0
+        currency:
+          $ref: "#/components/schemas/Currency"
